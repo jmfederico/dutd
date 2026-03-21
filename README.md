@@ -9,7 +9,7 @@ dutd periodically checks running containers, pulls the latest version of their i
 - Single static binary, no runtime dependencies
 - Connects to Docker via Unix socket only (no TCP/TLS)
 - Configurable check interval
-- Filter containers by name (glob patterns) or image tag (exact match), or both
+- Filter containers by name (glob patterns), image tag (exact match), or label, or any combination
 - Preserves full container config on recreate: env, mounts, ports, networks, labels, restart policy, entrypoint, user
 - Skips restart when the pulled image is identical to the running one
 - Graceful shutdown via `docker stop` with configurable timeout
@@ -40,7 +40,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     command:
       - --interval=1h
-      - --name=*
+      - --label=com.example.dutd=true
+
+  web:
+    image: nginx:latest
+    labels:
+      com.example.dutd: "true"
 ```
 
 ### Binary
@@ -59,9 +64,10 @@ dutd [flags]
   --stop-timeout  Seconds to wait for graceful stop (default: 30)
   --name          Glob pattern to match container names (repeatable)
   --tag           Exact image reference to match (repeatable)
+  --label         Label filter as "key=value" or "key" (repeatable)
 ```
 
-At least one `--name` or `--tag` is required. Filters are additive: a container is updated if it matches **any** `--name` glob **or** any `--tag`.
+At least one `--name`, `--tag`, or `--label` is required. Filters are additive: a container is updated if it matches **any** `--name` glob, **any** `--tag`, **or** any `--label`.
 
 ### Examples
 
@@ -74,6 +80,12 @@ dutd --tag nginx:latest --tag redis:latest
 
 # Update everything every 6 hours
 dutd --interval 6h --name "*"
+
+# Update containers with a specific label value
+dutd --label com.example.dutd=true
+
+# Update containers that have a label (any value)
+dutd --label com.example.dutd
 ```
 
 ## Building
@@ -89,7 +101,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t dutd:latest .
 ## How it works
 
 1. List all running containers
-2. Filter by `--name` globs and `--tag` values
+2. Filter by `--name` globs, `--tag` values, and `--label` filters
 3. For each matching container, pull the image
 4. Compare the pulled image ID to the running container's image ID
 5. If unchanged, skip

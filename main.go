@@ -44,17 +44,20 @@ func main() {
 		stopTimeout = flag.Int("stop-timeout", 30, "Seconds to wait for a container to stop gracefully before SIGKILL")
 		nameGlobs   multiFlag
 		tags        multiFlag
+		labels      multiFlag
 	)
 
 	flag.Var(&nameGlobs, "name", "Glob pattern to match container names (repeatable, e.g. --name \"web-*\")")
 	flag.Var(&tags, "tag", "Exact image tag to match (repeatable, e.g. --tag nginx:latest)")
+	flag.Var(&labels, "label", "Label filter in \"key=value\" or \"key\" form (repeatable, e.g. --label com.example.update=true)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `dutd — Docker Up To Date
 
 Periodically pulls the latest version of images for running containers and
 recreates them when the digest changes. Filters are additive (union): a
-container is updated if it matches any --name glob OR any --tag value.
+container is updated if it matches any --name glob, any --tag value, or any
+--label filter.
 
 Usage:
   dutd [flags]
@@ -72,14 +75,20 @@ Examples:
 
   # Update every container on the host every 6 hours
   dutd --interval 6h --name "*"
+
+  # Update containers with a specific label
+  dutd --label com.example.dutd=true
+
+  # Update containers that have a label (any value)
+  dutd --label com.example.dutd
 `)
 	}
 
 	flag.Parse()
 
 	// Validate that at least one filter was provided.
-	if len(nameGlobs) == 0 && len(tags) == 0 {
-		fmt.Fprintln(os.Stderr, "error: at least one --name or --tag filter is required")
+	if len(nameGlobs) == 0 && len(tags) == 0 && len(labels) == 0 {
+		fmt.Fprintln(os.Stderr, "error: at least one --name, --tag, or --label filter is required")
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -130,6 +139,7 @@ Examples:
 	cfg := &updater.Config{
 		NameGlobs: []string(nameGlobs),
 		Tags:      []string(tags),
+		Labels:    []string(labels),
 	}
 
 	u := updater.New(cli, cfg, interval, *stopTimeout, selfID, log)

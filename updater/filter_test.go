@@ -103,6 +103,79 @@ func TestConfig_Matches(t *testing.T) {
 			ct:     container.Summary{Names: []string{"/app-12"}, Image: "myimg:latest"},
 			expect: false,
 		},
+		// Label filter tests.
+		{
+			name:   "label key=value match",
+			cfg:    Config{Labels: []string{"com.example.update=true"}},
+			ct:     container.Summary{Names: []string{"/myapp"}, Image: "nginx:latest", Labels: map[string]string{"com.example.update": "true"}},
+			expect: true,
+		},
+		{
+			name:   "label key=value no match on wrong value",
+			cfg:    Config{Labels: []string{"com.example.update=true"}},
+			ct:     container.Summary{Names: []string{"/myapp"}, Image: "nginx:latest", Labels: map[string]string{"com.example.update": "false"}},
+			expect: false,
+		},
+		{
+			name:   "label key=value no match on missing key",
+			cfg:    Config{Labels: []string{"com.example.update=true"}},
+			ct:     container.Summary{Names: []string{"/myapp"}, Image: "nginx:latest", Labels: map[string]string{}},
+			expect: false,
+		},
+		{
+			name:   "label key-only match (any value)",
+			cfg:    Config{Labels: []string{"com.example.update"}},
+			ct:     container.Summary{Names: []string{"/myapp"}, Image: "nginx:latest", Labels: map[string]string{"com.example.update": "anything"}},
+			expect: true,
+		},
+		{
+			name:   "label key-only match with empty value",
+			cfg:    Config{Labels: []string{"com.example.update"}},
+			ct:     container.Summary{Names: []string{"/myapp"}, Image: "nginx:latest", Labels: map[string]string{"com.example.update": ""}},
+			expect: true,
+		},
+		{
+			name:   "label key-only no match on missing key",
+			cfg:    Config{Labels: []string{"com.example.update"}},
+			ct:     container.Summary{Names: []string{"/myapp"}, Image: "nginx:latest", Labels: map[string]string{"other": "value"}},
+			expect: false,
+		},
+		{
+			name:   "label match with nil labels on container",
+			cfg:    Config{Labels: []string{"com.example.update"}},
+			ct:     container.Summary{Names: []string{"/myapp"}, Image: "nginx:latest"},
+			expect: false,
+		},
+		{
+			name:   "label key=empty-string matches label with empty value",
+			cfg:    Config{Labels: []string{"marker="}},
+			ct:     container.Summary{Names: []string{"/myapp"}, Image: "nginx:latest", Labels: map[string]string{"marker": ""}},
+			expect: true,
+		},
+		{
+			name:   "label key=empty-string does not match label with non-empty value",
+			cfg:    Config{Labels: []string{"marker="}},
+			ct:     container.Summary{Names: []string{"/myapp"}, Image: "nginx:latest", Labels: map[string]string{"marker": "something"}},
+			expect: false,
+		},
+		{
+			name:   "multiple labels - second matches",
+			cfg:    Config{Labels: []string{"missing", "present=yes"}},
+			ct:     container.Summary{Names: []string{"/myapp"}, Image: "nginx:latest", Labels: map[string]string{"present": "yes"}},
+			expect: true,
+		},
+		{
+			name:   "union: label matches but name and tag do not",
+			cfg:    Config{NameGlobs: []string{"api-*"}, Tags: []string{"redis:latest"}, Labels: []string{"com.example.update=true"}},
+			ct:     container.Summary{Names: []string{"/web-app"}, Image: "nginx:latest", Labels: map[string]string{"com.example.update": "true"}},
+			expect: true,
+		},
+		{
+			name:   "union: name matches but label does not",
+			cfg:    Config{NameGlobs: []string{"web-*"}, Labels: []string{"missing"}},
+			ct:     container.Summary{Names: []string{"/web-app"}, Image: "nginx:latest", Labels: map[string]string{}},
+			expect: true,
+		},
 	}
 
 	for _, tt := range tests {
