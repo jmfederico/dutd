@@ -24,9 +24,10 @@ dutd periodically checks running containers, pulls the latest version of their i
 docker run -d \
   --name dutd \
   --restart unless-stopped \
+  --user "$(id -u):$(getent group docker | cut -d: -f3)" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   ghcr.io/jmfederico/dutd:latest \
-  -interval=1h -name=*
+  -interval=1h -label=com.example.dutd=true
 ```
 
 ### Docker Compose
@@ -36,6 +37,7 @@ services:
   dutd:
     image: ghcr.io/jmfederico/dutd:latest
     restart: unless-stopped
+    user: "${UID}:${DOCKER_GID}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command:
@@ -46,6 +48,46 @@ services:
     image: nginx:latest
     labels:
       com.example.dutd: "true"
+```
+
+Set `UID` and `DOCKER_GID` in your `.env` file or export them before running:
+
+```bash
+echo "UID=$(id -u)" >> .env
+echo "DOCKER_GID=$(getent group docker | cut -d: -f3)" >> .env
+docker compose up -d
+```
+
+### SELinux
+
+On systems with SELinux enforcing (e.g. Fedora, RHEL, CentOS), the container may be denied access to the Docker socket even with the correct user and group. Add `--security-opt label=disable` to allow it:
+
+```bash
+docker run -d \
+  --name dutd \
+  --restart unless-stopped \
+  --user "$(id -u):$(getent group docker | cut -d: -f3)" \
+  --security-opt label=disable \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  ghcr.io/jmfederico/dutd:latest \
+  -interval=1h -label=com.example.dutd=true
+```
+
+For Docker Compose, add the equivalent under the service:
+
+```yaml
+services:
+  dutd:
+    image: ghcr.io/jmfederico/dutd:latest
+    restart: unless-stopped
+    user: "${UID}:${DOCKER_GID}"
+    security_opt:
+      - label=disable
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - -interval=1h
+      - -label=com.example.dutd=true
 ```
 
 ### Binary
