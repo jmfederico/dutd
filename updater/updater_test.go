@@ -27,7 +27,10 @@ func fullMockForUpdate(oldImageID, newImageID string) *mockClient {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
 		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
-			return image.InspectResponse{ID: newImageID}, nil, nil
+			return image.InspectResponse{
+				ID:          newImageID,
+				RepoDigests: []string{"nginx@sha256:abc123"},
+			}, nil, nil
 		},
 		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
 			return container.InspectResponse{
@@ -176,8 +179,120 @@ func TestResolveImageRef_InspectError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// isLocalImage
+// ---------------------------------------------------------------------------
+
+func TestIsLocalImage_LocallyBuilt(t *testing.T) {
+	// A locally-built image has no RepoDigests.
+	m := &mockClient{
+		imageInspectWithRawFn: func(_ context.Context, ref string) (image.InspectResponse, []byte, error) {
+			if ref != "myapp:latest" {
+				t.Errorf("unexpected image ref %q", ref)
+			}
+			return image.InspectResponse{
+				ID:          "sha256:abcdef",
+				RepoDigests: nil, // no registry source
+			}, nil, nil
+		},
+	}
+
+	u := New(m, &Config{NameGlobs: []string{"*"}}, time.Hour, 30, "", discardLogger())
+
+	local, err := u.isLocalImage(context.Background(), "myapp:latest")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !local {
+		t.Error("expected locally-built image to be detected as local")
+	}
+}
+
+func TestIsLocalImage_RegistryPulled(t *testing.T) {
+	// A registry-pulled image has RepoDigests entries.
+	m := &mockClient{
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
+			return image.InspectResponse{
+				ID:          "sha256:abcdef",
+				RepoDigests: []string{"nginx@sha256:abc123def456"},
+			}, nil, nil
+		},
+	}
+
+	u := New(m, &Config{NameGlobs: []string{"*"}}, time.Hour, 30, "", discardLogger())
+
+	local, err := u.isLocalImage(context.Background(), "nginx:latest")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if local {
+		t.Error("expected registry-pulled image NOT to be detected as local")
+	}
+}
+
+func TestIsLocalImage_InspectError(t *testing.T) {
+	m := &mockClient{
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
+			return image.InspectResponse{}, nil, errors.New("image not found")
+		},
+	}
+
+	u := New(m, &Config{NameGlobs: []string{"*"}}, time.Hour, 30, "", discardLogger())
+
+	_, err := u.isLocalImage(context.Background(), "missing:latest")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "inspect") {
+		t.Errorf("error should mention inspect, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // updateContainer
 // ---------------------------------------------------------------------------
+
+func TestUpdateContainer_SkipsLocallyBuiltImage(t *testing.T) {
+	// When a container uses a locally-built image (no RepoDigests),
+	// updateContainer should skip it without attempting a pull.
+	var pullCalled bool
+
+	m := &mockClient{
+		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{
+				Config: &container.Config{Image: "myproject-myservice"},
+			}, nil
+		},
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
+			return image.InspectResponse{
+				ID:          "sha256:localonly",
+				RepoDigests: nil, // locally built — no registry source
+			}, nil, nil
+		},
+		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
+			pullCalled = true
+			return nil, errors.New("should not be called")
+		},
+	}
+
+	u := New(m, &Config{NameGlobs: []string{"*"}}, time.Hour, 30, "", discardLogger())
+	ct := container.Summary{
+		ID:      "abcdef1234567890",
+		Names:   []string{"/myproject-myservice-1"},
+		Image:   "myproject-myservice",
+		ImageID: "sha256:localonly",
+	}
+
+	updated, err := u.updateContainer(context.Background(), ct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated {
+		t.Error("expected no update for locally-built image")
+	}
+	if pullCalled {
+		t.Error("pull should not be called for locally-built image")
+	}
+}
 
 func TestUpdateContainer_SHA256ImageRef(t *testing.T) {
 	// Simulates the scenario where ct.Image is a sha256 digest because the
@@ -228,7 +343,10 @@ func TestUpdateContainer_DigestUnchanged(t *testing.T) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
 		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
-			return image.InspectResponse{ID: sameID}, nil, nil
+			return image.InspectResponse{
+				ID:          sameID,
+				RepoDigests: []string{"nginx@sha256:abc123"},
+			}, nil, nil
 		},
 	}
 
@@ -312,6 +430,12 @@ func TestUpdateContainer_PullFailure(t *testing.T) {
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
 			return nil, errors.New("registry down")
 		},
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
+			return image.InspectResponse{
+				ID:          "sha256:old",
+				RepoDigests: []string{"nginx@sha256:abc123"},
+			}, nil, nil
+		},
 	}
 
 	u := New(m, &Config{NameGlobs: []string{"*"}}, time.Hour, 30, "", discardLogger())
@@ -391,7 +515,10 @@ func TestRunOnce_FiltersAndCounts(t *testing.T) {
 		},
 		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
 			// Same image ID — no update needed
-			return image.InspectResponse{ID: "sha256:same"}, nil, nil
+			return image.InspectResponse{
+				ID:          "sha256:same",
+				RepoDigests: []string{"nginx@sha256:abc123"},
+			}, nil, nil
 		},
 	}
 

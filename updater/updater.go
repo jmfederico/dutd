@@ -212,6 +212,19 @@ func (u *Updater) resolveImageRef(ctx context.Context, ct container.Summary) (st
 	return "", fmt.Errorf("container %s: cannot determine pullable image (summary=%q, config empty)", ct.ID[:12], ct.Image)
 }
 
+// isLocalImage reports whether the given image reference refers to a
+// locally-built image that has never been pushed to or pulled from a registry.
+// It checks the image's RepoDigests: registry-sourced images always have at
+// least one entry (e.g. "nginx@sha256:abc123..."), while locally-built images
+// have none.
+func (u *Updater) isLocalImage(ctx context.Context, imageRef string) (bool, error) {
+	resp, _, err := u.cli.ImageInspectWithRaw(ctx, imageRef)
+	if err != nil {
+		return false, fmt.Errorf("inspect image %s: %w", imageRef, err)
+	}
+	return len(resp.RepoDigests) == 0, nil
+}
+
 // updateContainer pulls the image for a single container and, if the digest
 // has changed, stops the old container and recreates it with the new image.
 // Returns true if the container was actually restarted.
@@ -226,6 +239,19 @@ func (u *Updater) updateContainer(ctx context.Context, ct container.Summary) (bo
 	imageRef, err := u.resolveImageRef(ctx, ct)
 	if err != nil {
 		return false, err
+	}
+
+	// Skip locally-built images — they have no registry to pull from.
+	local, err := u.isLocalImage(ctx, imageRef)
+	if err != nil {
+		return false, err
+	}
+	if local {
+		u.log.Info("skipping locally-built image (no registry source)",
+			"name", name,
+			"image", imageRef,
+		)
+		return false, nil
 	}
 
 	// Pull the latest version (up to 3 attempts with linear backoff).
@@ -293,6 +319,19 @@ func (u *Updater) updateSelf(ctx context.Context, ct container.Summary) (bool, e
 	imageRef, err := u.resolveImageRef(ctx, ct)
 	if err != nil {
 		return false, err
+	}
+
+	// Skip locally-built images — they have no registry to pull from.
+	local, err := u.isLocalImage(ctx, imageRef)
+	if err != nil {
+		return false, err
+	}
+	if local {
+		u.log.Info("skipping self-update for locally-built image (no registry source)",
+			"name", name,
+			"image", imageRef,
+		)
+		return false, nil
 	}
 
 	u.log.Info("checking self for updates", "name", name, "image", imageRef)

@@ -494,7 +494,10 @@ func TestUpdateSelf_AlreadyUpToDate(t *testing.T) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
 		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
-			return image.InspectResponse{ID: sameID}, nil, nil
+			return image.InspectResponse{
+				ID:          sameID,
+				RepoDigests: []string{"dutd@sha256:abc123"},
+			}, nil, nil
 		},
 	}
 
@@ -522,7 +525,10 @@ func TestUpdateSelf_ImageChanged(t *testing.T) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
 		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
-			return image.InspectResponse{ID: "sha256:newnewnew"}, nil, nil
+			return image.InspectResponse{
+				ID:          "sha256:newnewnew",
+				RepoDigests: []string{"dutd@sha256:abc123"},
+			}, nil, nil
 		},
 		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
 			return container.InspectResponse{
@@ -603,7 +609,10 @@ func TestRunOnce_DefersSelftUpdateToEnd(t *testing.T) {
 		},
 		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
 			// Same image — no actual update
-			return image.InspectResponse{ID: sameID}, nil, nil
+			return image.InspectResponse{
+				ID:          sameID,
+				RepoDigests: []string{"nginx@sha256:abc123"},
+			}, nil, nil
 		},
 	}
 
@@ -638,7 +647,10 @@ func TestRunOnce_SelfUpdateTriggersReturn(t *testing.T) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
 		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
-			return image.InspectResponse{ID: "sha256:new"}, nil, nil
+			return image.InspectResponse{
+				ID:          "sha256:new",
+				RepoDigests: []string{"dutd@sha256:abc123"},
+			}, nil, nil
 		},
 		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
 			return container.InspectResponse{
@@ -693,7 +705,10 @@ func TestRunOnce_NoSelfID_NormalBehavior(t *testing.T) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
 		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
-			return image.InspectResponse{ID: sameID}, nil, nil
+			return image.InspectResponse{
+				ID:          sameID,
+				RepoDigests: []string{"nginx@sha256:abc123"},
+			}, nil, nil
 		},
 	}
 
