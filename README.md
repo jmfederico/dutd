@@ -26,7 +26,7 @@ docker run -d \
   --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock \
   ghcr.io/jmfederico/dutd:latest \
-  --interval=1h --name=*
+  -interval=1h -name=*
 ```
 
 ### Docker Compose
@@ -39,8 +39,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command:
-      - --interval=1h
-      - --label=com.example.dutd=true
+      - -interval=1h
+      - -label=com.example.dutd=true
 
   web:
     image: nginx:latest
@@ -51,7 +51,7 @@ services:
 ### Binary
 
 ```
-dutd --interval 1h --name "*"
+dutd -interval 1h -name "*"
 ```
 
 ## Usage
@@ -59,33 +59,33 @@ dutd --interval 1h --name "*"
 ```
 dutd [flags]
 
-  --socket        Path to Docker socket (default: /var/run/docker.sock)
-  --interval      Check interval (default: 1h, e.g. 30m, 6h, 24h)
-  --stop-timeout  Seconds to wait for graceful stop (default: 30)
-  --name          Glob pattern to match container names (repeatable)
-  --tag           Exact image reference to match (repeatable)
-  --label         Label filter as "key=value" or "key" (repeatable)
+  -socket        Path to Docker socket (default: /var/run/docker.sock)
+  -interval      Check interval (default: 1h, e.g. 30m, 6h, 24h)
+  -stop-timeout  Seconds to wait for graceful stop (default: 30)
+  -name          Glob pattern to match container names (repeatable)
+  -tag           Exact image reference to match (repeatable)
+  -label         Label filter as "key=value" or "key" (repeatable)
 ```
 
-At least one `--name`, `--tag`, or `--label` is required. Filters are additive: a container is updated if it matches **any** `--name` glob, **any** `--tag`, **or** any `--label`.
+At least one `-name`, `-tag`, or `-label` is required. Filters are additive: a container is updated if it matches **any** `-name` glob, **any** `-tag`, **or** any `-label`.
 
 ### Examples
 
 ```bash
 # Update containers named web-* or api-* every 30 minutes
-dutd --interval 30m --name "web-*" --name "api-*"
+dutd -interval 30m -name "web-*" -name "api-*"
 
 # Update specific images every hour
-dutd --tag nginx:latest --tag redis:latest
+dutd -tag nginx:latest -tag redis:latest
 
 # Update everything every 6 hours
-dutd --interval 6h --name "*"
+dutd -interval 6h -name "*"
 
 # Update containers with a specific label value
-dutd --label com.example.dutd=true
+dutd -label com.example.dutd=true
 
 # Update containers that have a label (any value)
-dutd --label com.example.dutd
+dutd -label com.example.dutd
 ```
 
 ## Building
@@ -101,7 +101,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t dutd:latest .
 ## How it works
 
 1. List all running containers
-2. Filter by `--name` globs, `--tag` values, and `--label` filters
+2. Filter by `-name` globs, `-tag` values, and `-label` filters
 3. For each matching container, pull the image
 4. Compare the pulled image ID to the running container's image ID
 5. If unchanged, skip

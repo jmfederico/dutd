@@ -15,7 +15,7 @@ import (
 )
 
 // multiFlag allows a CLI flag to be specified multiple times.
-// e.g.  --name "web-*" --name "api-*"
+// e.g.  -name "web-*" -name "api-*"
 type multiFlag []string
 
 func (m *multiFlag) String() string {
@@ -47,17 +47,17 @@ func main() {
 		labels      multiFlag
 	)
 
-	flag.Var(&nameGlobs, "name", "Glob pattern to match container names (repeatable, e.g. --name \"web-*\")")
-	flag.Var(&tags, "tag", "Exact image tag to match (repeatable, e.g. --tag nginx:latest)")
-	flag.Var(&labels, "label", "Label filter in \"key=value\" or \"key\" form (repeatable, e.g. --label com.example.update=true)")
+	flag.Var(&nameGlobs, "name", "Glob pattern to match container names (repeatable, e.g. -name \"web-*\")")
+	flag.Var(&tags, "tag", "Exact image tag to match (repeatable, e.g. -tag nginx:latest)")
+	flag.Var(&labels, "label", "Label filter in \"key=value\" or \"key\" form (repeatable, e.g. -label com.example.update=true)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `dutd — Docker Up To Date
 
 Periodically pulls the latest version of images for running containers and
 recreates them when the digest changes. Filters are additive (union): a
-container is updated if it matches any --name glob, any --tag value, or any
---label filter.
+container is updated if it matches any -name glob, any -tag value, or any
+-label filter.
 
 Usage:
   dutd [flags]
@@ -68,19 +68,19 @@ Flags:
 		fmt.Fprintf(os.Stderr, `
 Examples:
   # Update all containers tagged :latest every hour
-  dutd --tag nginx:latest --tag redis:latest
+  dutd -tag nginx:latest -tag redis:latest
 
   # Update all containers whose name starts with "web-" or "api-" every 30 minutes
-  dutd --interval 30m --name "web-*" --name "api-*"
+  dutd -interval 30m -name "web-*" -name "api-*"
 
   # Update every container on the host every 6 hours
-  dutd --interval 6h --name "*"
+  dutd -interval 6h -name "*"
 
   # Update containers with a specific label
-  dutd --label com.example.dutd=true
+  dutd -label com.example.dutd=true
 
   # Update containers that have a label (any value)
-  dutd --label com.example.dutd
+  dutd -label com.example.dutd
 `)
 	}
 
@@ -88,18 +88,18 @@ Examples:
 
 	// Validate that at least one filter was provided.
 	if len(nameGlobs) == 0 && len(tags) == 0 && len(labels) == 0 {
-		fmt.Fprintln(os.Stderr, "error: at least one --name, --tag, or --label filter is required")
+		fmt.Fprintln(os.Stderr, "error: at least one -name, -tag, or -label filter is required")
 		flag.Usage()
 		os.Exit(1)
 	}
 
 	interval, err := time.ParseDuration(*intervalStr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: invalid --interval %q: %v\n", *intervalStr, err)
+		fmt.Fprintf(os.Stderr, "error: invalid -interval %q: %v\n", *intervalStr, err)
 		os.Exit(1)
 	}
 	if interval <= 0 {
-		fmt.Fprintln(os.Stderr, "error: --interval must be a positive duration")
+		fmt.Fprintln(os.Stderr, "error: -interval must be a positive duration")
 		os.Exit(1)
 	}
 
