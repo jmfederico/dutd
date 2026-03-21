@@ -1,0 +1,76 @@
+name: Publish Docker image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute CalVer tag
+        id: calver
+        run: |
+          # CalVer format: v1.YYYY.MMDD.N
+          # N auto-increments starting at 0 for each day.
+          DATE_PREFIX="v1.$(date -u +%Y.%m%d)"
+
+          # Find the highest N for today's prefix among existing git tags.
+          LAST_N=$(git tag --list "${DATE_PREFIX}.*" --sort=-v:refname | head -n1 | awk -F. '{print $NF}')
+
+          if [ -z "$LAST_N" ]; then
+            N=0
+          else
+            N=$((LAST_N + 1))
+          fi
+
+          VERSION="${DATE_PREFIX}.${N}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Computed version: ${VERSION}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v1
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.calver.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create git tag
+        run: |
+          git tag "${{ steps.calver.outputs.version }}"
+          git push origin "${{ steps.calver.outputs.version }}"

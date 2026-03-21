@@ -1,0 +1,9 @@
+services:
+  dutd:
+    image: ghcr.io/jmfederico/dutd:latest
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - --interval=1h
+      - --name=*
