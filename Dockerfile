@@ -3,7 +3,7 @@
 # ── Stage 1: build ──────────────────────────────────────────────────────────
 # BuildKit sets TARGETPLATFORM / TARGETARCH automatically when building
 # multi-platform images with --platform, so no manual GOARCH wiring is needed.
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
 
 # Build arguments injected by BuildKit for cross-compilation.
 ARG TARGETOS=linux
