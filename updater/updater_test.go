@@ -63,9 +63,15 @@ func fullMockForUpdate(oldImageID, newImageID string) *mockClient {
 // ---------------------------------------------------------------------------
 
 func TestResolveImageRef_NameTag(t *testing.T) {
-	// When ct.Image is a name:tag, it should be returned as-is without
-	// calling ContainerInspect.
-	m := &mockClient{}
+	// When Config.Image matches ct.Image (name:tag), it should be returned
+	// as-is from the inspect result.
+	m := &mockClient{
+		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{
+				Config: &container.Config{Image: "python:latest"},
+			}, nil
+		},
+	}
 	u := New(m, &Config{NameGlobs: []string{"*"}}, time.Hour, 30, "", discardLogger())
 
 	ct := container.Summary{
@@ -80,6 +86,34 @@ func TestResolveImageRef_NameTag(t *testing.T) {
 	}
 	if ref != "python:latest" {
 		t.Errorf("expected %q, got %q", "python:latest", ref)
+	}
+}
+
+func TestResolveImageRef_ComposeServiceName(t *testing.T) {
+	// Docker Compose may set ct.Image to a service-derived name like
+	// "myproject-myservice" that is not a valid registry reference.
+	// resolveImageRef should resolve it via ContainerInspect.
+	m := &mockClient{
+		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{
+				Config: &container.Config{Image: "syncthing/relaysrv:latest"},
+			}, nil
+		},
+	}
+	u := New(m, &Config{NameGlobs: []string{"*"}}, time.Hour, 30, "", discardLogger())
+
+	ct := container.Summary{
+		ID:    "abcdef1234567890",
+		Names: []string{"/syncthing-relaysrv-syncthing-relaysrv-1"},
+		Image: "syncthing-relaysrv-syncthing-relaysrv",
+	}
+
+	ref, err := u.resolveImageRef(context.Background(), ct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ref != "syncthing/relaysrv:latest" {
+		t.Errorf("expected %q, got %q", "syncthing/relaysrv:latest", ref)
 	}
 }
 
@@ -185,6 +219,11 @@ func TestUpdateContainer_DigestUnchanged(t *testing.T) {
 	sameID := "sha256:aabbccdd"
 
 	m := &mockClient{
+		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{
+				Config: &container.Config{Image: "nginx:latest"},
+			}, nil
+		},
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
@@ -265,6 +304,11 @@ func TestUpdateContainer_DigestChanged(t *testing.T) {
 
 func TestUpdateContainer_PullFailure(t *testing.T) {
 	m := &mockClient{
+		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{
+				Config: &container.Config{Image: "nginx:latest"},
+			}, nil
+		},
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
 			return nil, errors.New("registry down")
 		},
@@ -293,7 +337,17 @@ func TestUpdateContainer_PullFailure(t *testing.T) {
 
 func TestUpdateContainer_SnapshotFailure(t *testing.T) {
 	m := fullMockForUpdate("sha256:old", "sha256:new")
+
+	// The first ContainerInspect call comes from resolveImageRef (must
+	// succeed). The second comes from snapshotContainer (should fail).
+	var inspectCalls int
 	m.containerInspectFn = func(_ context.Context, _ string) (container.InspectResponse, error) {
+		inspectCalls++
+		if inspectCalls == 1 {
+			return container.InspectResponse{
+				Config: &container.Config{Image: "nginx:latest"},
+			}, nil
+		}
 		return container.InspectResponse{}, errors.New("inspect failed")
 	}
 
@@ -325,6 +379,11 @@ func TestRunOnce_FiltersAndCounts(t *testing.T) {
 				{ID: "aaaa111122223333", Names: []string{"/web-1"}, Image: "nginx:latest", ImageID: "sha256:same"},
 				{ID: "bbbb111122223333", Names: []string{"/api-1"}, Image: "redis:latest", ImageID: "sha256:same"},
 				{ID: "cccc111122223333", Names: []string{"/db-1"}, Image: "postgres:16", ImageID: "sha256:same"},
+			}, nil
+		},
+		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{
+				Config: &container.Config{Image: "nginx:latest"},
 			}, nil
 		},
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {

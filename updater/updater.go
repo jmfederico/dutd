@@ -175,34 +175,41 @@ func (u *Updater) isSelf(ct container.Summary) bool {
 }
 
 // resolveImageRef returns a pullable image reference for a container.
-// Docker's ContainerList API returns the image ID (sha256:...) in
-// container.Summary.Image when the original tag has moved to a newer digest.
-// A bare sha256 ID cannot be pulled from a registry, so we fall back to
-// ContainerInspect to retrieve the original image name from Config.Image.
+// resolveImageRef determines the pullable image reference for a container.
+//
+// container.Summary.Image from Docker's ContainerList API is unreliable:
+//   - It may be a sha256 digest when the original tag has moved to a newer image.
+//   - Docker Compose may set it to a service-derived name (e.g.
+//     "myproject-myservice") that is not a valid registry reference.
+//
+// To handle both cases we always inspect the container and prefer
+// Config.Image, which stores the original image reference.  We only fall back
+// to ct.Image when it already looks like a valid registry reference (contains
+// a '/' or a ':').
 func (u *Updater) resolveImageRef(ctx context.Context, ct container.Summary) (string, error) {
-	if !strings.HasPrefix(ct.Image, "sha256:") {
-		return ct.Image, nil
-	}
-
-	u.log.Info("image ref is a digest, inspecting container for original name",
-		"name", containerName(ct),
-		"image_id", ct.Image,
-	)
-
 	resp, err := u.cli.ContainerInspect(ctx, ct.ID)
 	if err != nil {
 		return "", fmt.Errorf("inspect container %s to resolve image ref: %w", ct.ID[:12], err)
 	}
 
 	if resp.Config != nil && resp.Config.Image != "" {
-		u.log.Info("resolved image ref",
-			"name", containerName(ct),
-			"resolved", resp.Config.Image,
-		)
-		return resp.Config.Image, nil
+		ref := resp.Config.Image
+		if ref != ct.Image {
+			u.log.Info("resolved image ref from container config",
+				"name", containerName(ct),
+				"summary_image", ct.Image,
+				"resolved", ref,
+			)
+		}
+		return ref, nil
 	}
 
-	return "", fmt.Errorf("container %s has no image name in config (image ID: %s)", ct.ID[:12], ct.Image)
+	// Config.Image is empty; fall back to ct.Image only if it looks pullable.
+	if strings.Contains(ct.Image, "/") || strings.Contains(ct.Image, ":") {
+		return ct.Image, nil
+	}
+
+	return "", fmt.Errorf("container %s: cannot determine pullable image (summary=%q, config empty)", ct.ID[:12], ct.Image)
 }
 
 // updateContainer pulls the image for a single container and, if the digest

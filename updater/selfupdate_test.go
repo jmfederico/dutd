@@ -485,6 +485,11 @@ func TestUpdateSelf_AlreadyUpToDate(t *testing.T) {
 	sameID := "sha256:aabbccdd"
 
 	m := &mockClient{
+		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{
+				Config: &container.Config{Image: "dutd:latest"},
+			}, nil
+		},
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
@@ -574,12 +579,22 @@ func TestRunOnce_DefersSelftUpdateToEnd(t *testing.T) {
 
 	sameID := "sha256:same"
 
+	imageMap := map[string]string{
+		selfContainerID:  "dutd:latest",
+		otherContainerID: "nginx:latest",
+	}
+
 	m := &mockClient{
 		containerListFn: func(_ context.Context, _ container.ListOptions) ([]container.Summary, error) {
 			return []container.Summary{
 				// Self is listed first — but should be processed last.
 				{ID: selfContainerID, Names: []string{"/dutd"}, Image: "dutd:latest", ImageID: sameID},
 				{ID: otherContainerID, Names: []string{"/web"}, Image: "nginx:latest", ImageID: sameID},
+			}, nil
+		},
+		containerInspectFn: func(_ context.Context, cid string) (container.InspectResponse, error) {
+			return container.InspectResponse{
+				Config: &container.Config{Image: imageMap[cid]},
 			}, nil
 		},
 		imagePullFn: func(_ context.Context, ref string, _ image.PullOptions) (io.ReadCloser, error) {
@@ -667,6 +682,11 @@ func TestRunOnce_NoSelfID_NormalBehavior(t *testing.T) {
 		containerListFn: func(_ context.Context, _ container.ListOptions) ([]container.Summary, error) {
 			return []container.Summary{
 				{ID: "aaaa1234567890abcdef", Names: []string{"/web"}, Image: "nginx:latest", ImageID: sameID},
+			}, nil
+		},
+		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{
+				Config: &container.Config{Image: "nginx:latest"},
 			}, nil
 		},
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
