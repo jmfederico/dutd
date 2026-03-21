@@ -167,10 +167,11 @@ func (f *failReader) Read([]byte) (int, error) {
 
 func TestImageID_Found(t *testing.T) {
 	m := &mockClient{
-		imageListFn: func(_ context.Context, _ image.ListOptions) ([]image.Summary, error) {
-			return []image.Summary{
-				{ID: "sha256:abc123def456"},
-			}, nil
+		imageInspectWithRawFn: func(_ context.Context, ref string) (image.InspectResponse, []byte, error) {
+			if ref != "nginx:latest" {
+				t.Errorf("unexpected ref %q", ref)
+			}
+			return image.InspectResponse{ID: "sha256:abc123def456"}, nil, nil
 		},
 	}
 
@@ -183,26 +184,10 @@ func TestImageID_Found(t *testing.T) {
 	}
 }
 
-func TestImageID_NotFound(t *testing.T) {
-	m := &mockClient{
-		imageListFn: func(_ context.Context, _ image.ListOptions) ([]image.Summary, error) {
-			return nil, nil
-		},
-	}
-
-	id, err := imageID(context.Background(), m, "nonexistent:tag")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if id != "" {
-		t.Errorf("expected empty id, got %q", id)
-	}
-}
-
 func TestImageID_Error(t *testing.T) {
 	m := &mockClient{
-		imageListFn: func(_ context.Context, _ image.ListOptions) ([]image.Summary, error) {
-			return nil, errors.New("api error")
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
+			return image.InspectResponse{}, nil, errors.New("api error")
 		},
 	}
 

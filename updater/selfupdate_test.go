@@ -488,8 +488,8 @@ func TestUpdateSelf_AlreadyUpToDate(t *testing.T) {
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
-		imageListFn: func(_ context.Context, _ image.ListOptions) ([]image.Summary, error) {
-			return []image.Summary{{ID: sameID}}, nil
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
+			return image.InspectResponse{ID: sameID}, nil, nil
 		},
 	}
 
@@ -516,8 +516,8 @@ func TestUpdateSelf_ImageChanged(t *testing.T) {
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
-		imageListFn: func(_ context.Context, _ image.ListOptions) ([]image.Summary, error) {
-			return []image.Summary{{ID: "sha256:newnewnew"}}, nil
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
+			return image.InspectResponse{ID: "sha256:newnewnew"}, nil, nil
 		},
 		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
 			return container.InspectResponse{
@@ -586,9 +586,9 @@ func TestRunOnce_DefersSelftUpdateToEnd(t *testing.T) {
 			updateOrder = append(updateOrder, ref)
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
-		imageListFn: func(_ context.Context, _ image.ListOptions) ([]image.Summary, error) {
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
 			// Same image — no actual update
-			return []image.Summary{{ID: sameID}}, nil
+			return image.InspectResponse{ID: sameID}, nil, nil
 		},
 	}
 
@@ -622,8 +622,8 @@ func TestRunOnce_SelfUpdateTriggersReturn(t *testing.T) {
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
-		imageListFn: func(_ context.Context, _ image.ListOptions) ([]image.Summary, error) {
-			return []image.Summary{{ID: "sha256:new"}}, nil
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
+			return image.InspectResponse{ID: "sha256:new"}, nil, nil
 		},
 		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
 			return container.InspectResponse{
@@ -672,8 +672,8 @@ func TestRunOnce_NoSelfID_NormalBehavior(t *testing.T) {
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
-		imageListFn: func(_ context.Context, _ image.ListOptions) ([]image.Summary, error) {
-			return []image.Summary{{ID: sameID}}, nil
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
+			return image.InspectResponse{ID: sameID}, nil, nil
 		},
 	}
 

@@ -174,6 +174,37 @@ func (u *Updater) isSelf(ct container.Summary) bool {
 	return strings.HasPrefix(ct.ID, u.selfID) || strings.HasPrefix(u.selfID, ct.ID)
 }
 
+// resolveImageRef returns a pullable image reference for a container.
+// Docker's ContainerList API returns the image ID (sha256:...) in
+// container.Summary.Image when the original tag has moved to a newer digest.
+// A bare sha256 ID cannot be pulled from a registry, so we fall back to
+// ContainerInspect to retrieve the original image name from Config.Image.
+func (u *Updater) resolveImageRef(ctx context.Context, ct container.Summary) (string, error) {
+	if !strings.HasPrefix(ct.Image, "sha256:") {
+		return ct.Image, nil
+	}
+
+	u.log.Info("image ref is a digest, inspecting container for original name",
+		"name", containerName(ct),
+		"image_id", ct.Image,
+	)
+
+	resp, err := u.cli.ContainerInspect(ctx, ct.ID)
+	if err != nil {
+		return "", fmt.Errorf("inspect container %s to resolve image ref: %w", ct.ID[:12], err)
+	}
+
+	if resp.Config != nil && resp.Config.Image != "" {
+		u.log.Info("resolved image ref",
+			"name", containerName(ct),
+			"resolved", resp.Config.Image,
+		)
+		return resp.Config.Image, nil
+	}
+
+	return "", fmt.Errorf("container %s has no image name in config (image ID: %s)", ct.ID[:12], ct.Image)
+}
+
 // updateContainer pulls the image for a single container and, if the digest
 // has changed, stops the old container and recreates it with the new image.
 // Returns true if the container was actually restarted.
@@ -183,9 +214,16 @@ func (u *Updater) updateContainer(ctx context.Context, ct container.Summary) (bo
 	// Record the currently running image ID (sha256:...) before pulling.
 	oldID := ct.ImageID
 
+	// Resolve a pullable image reference — ct.Image may be a bare sha256
+	// digest when the tag has moved to a newer image.
+	imageRef, err := u.resolveImageRef(ctx, ct)
+	if err != nil {
+		return false, err
+	}
+
 	// Pull the latest version (up to 3 attempts with linear backoff).
-	err := retryWithBackoff(3, u.retryDelay, func() error {
-		return pullImage(ctx, u.cli, ct.Image, u.log)
+	err = retryWithBackoff(3, u.retryDelay, func() error {
+		return pullImage(ctx, u.cli, imageRef, u.log)
 	})
 	if err != nil {
 		return false, fmt.Errorf("pull image: %w", err)
@@ -193,7 +231,7 @@ func (u *Updater) updateContainer(ctx context.Context, ct container.Summary) (bo
 
 	// Resolve the image ID of the tag we just pulled. This returns the same
 	// sha256:... format as ct.ImageID, so the two are directly comparable.
-	newID, err := imageID(ctx, u.cli, ct.Image)
+	newID, err := imageID(ctx, u.cli, imageRef)
 	if err != nil {
 		return false, fmt.Errorf("resolve new image id: %w", err)
 	}
@@ -202,7 +240,7 @@ func (u *Updater) updateContainer(ctx context.Context, ct container.Summary) (bo
 	if newID != "" && oldID != "" && newID == oldID {
 		u.log.Info("already up to date",
 			"name", name,
-			"image", ct.Image,
+			"image", imageRef,
 			"image_id", shortDigest(oldID),
 		)
 		return false, nil
@@ -210,7 +248,7 @@ func (u *Updater) updateContainer(ctx context.Context, ct container.Summary) (bo
 
 	u.log.Info("image updated, recreating container",
 		"name", name,
-		"image", ct.Image,
+		"image", imageRef,
 		"old_id", shortDigest(oldID),
 		"new_id", shortDigest(newID),
 	)
@@ -227,11 +265,11 @@ func (u *Updater) updateContainer(ctx context.Context, ct container.Summary) (bo
 	}
 
 	// Recreate with the new image.
-	if err := recreate(ctx, u.cli, info, ct.Image, u.log); err != nil {
+	if err := recreate(ctx, u.cli, info, imageRef, u.log); err != nil {
 		return false, fmt.Errorf("recreate container: %w", err)
 	}
 
-	u.log.Info("container updated successfully", "name", name, "image", ct.Image)
+	u.log.Info("container updated successfully", "name", name, "image", imageRef)
 	return true, nil
 }
 
@@ -243,17 +281,24 @@ func (u *Updater) updateSelf(ctx context.Context, ct container.Summary) (bool, e
 	name := containerName(ct)
 	oldID := ct.ImageID
 
-	u.log.Info("checking self for updates", "name", name, "image", ct.Image)
+	// Resolve a pullable image reference — ct.Image may be a bare sha256
+	// digest when the tag has moved to a newer image.
+	imageRef, err := u.resolveImageRef(ctx, ct)
+	if err != nil {
+		return false, err
+	}
+
+	u.log.Info("checking self for updates", "name", name, "image", imageRef)
 
 	// Pull the latest version.
-	err := retryWithBackoff(3, u.retryDelay, func() error {
-		return pullImage(ctx, u.cli, ct.Image, u.log)
+	err = retryWithBackoff(3, u.retryDelay, func() error {
+		return pullImage(ctx, u.cli, imageRef, u.log)
 	})
 	if err != nil {
 		return false, fmt.Errorf("self-update pull image: %w", err)
 	}
 
-	newID, err := imageID(ctx, u.cli, ct.Image)
+	newID, err := imageID(ctx, u.cli, imageRef)
 	if err != nil {
 		return false, fmt.Errorf("self-update resolve image id: %w", err)
 	}
@@ -261,7 +306,7 @@ func (u *Updater) updateSelf(ctx context.Context, ct container.Summary) (bool, e
 	if newID != "" && oldID != "" && newID == oldID {
 		u.log.Info("self already up to date",
 			"name", name,
-			"image", ct.Image,
+			"image", imageRef,
 			"image_id", shortDigest(oldID),
 		)
 		return false, nil
@@ -269,12 +314,12 @@ func (u *Updater) updateSelf(ctx context.Context, ct container.Summary) (bool, e
 
 	u.log.Info("self image updated, triggering self-update",
 		"name", name,
-		"image", ct.Image,
+		"image", imageRef,
 		"old_id", shortDigest(oldID),
 		"new_id", shortDigest(newID),
 	)
 
-	if err := u.selfUpdate(ctx, ct, ct.Image); err != nil {
+	if err := u.selfUpdate(ctx, ct, imageRef); err != nil {
 		if errors.Is(err, ErrSelfUpdateRestart) {
 			return true, nil
 		}

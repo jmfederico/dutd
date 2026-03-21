@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 )
@@ -83,17 +82,12 @@ func pullImage(ctx context.Context, cli DockerClient, imageRef string, log *slog
 // container.Summary.ImageID, making the two directly comparable.
 // Returns empty string if the image is not found locally.
 func imageID(ctx context.Context, cli DockerClient, imageRef string) (string, error) {
-	f := filters.NewArgs(filters.Arg("reference", imageRef))
-	images, err := cli.ImageList(ctx, image.ListOptions{Filters: f})
+	resp, _, err := cli.ImageInspectWithRaw(ctx, imageRef)
 	if err != nil {
-		return "", fmt.Errorf("list images for %s: %w", imageRef, err)
+		return "", fmt.Errorf("inspect image %s: %w", imageRef, err)
 	}
 
-	if len(images) > 0 {
-		return images[0].ID, nil
-	}
-
-	return "", nil
+	return resp.ID, nil
 }
 
 // stopAndRemove gracefully stops then removes a container.

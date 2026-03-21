@@ -15,16 +15,17 @@ import (
 // the corresponding function field, which can be set per-test. Unset fields
 // panic with a clear message so that missing expectations are immediately visible.
 type mockClient struct {
-	containerListFn    func(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
-	containerInspectFn func(ctx context.Context, containerID string) (container.InspectResponse, error)
-	containerStopFn    func(ctx context.Context, containerID string, options container.StopOptions) error
-	containerRemoveFn  func(ctx context.Context, containerID string, options container.RemoveOptions) error
-	containerCreateFn  func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error)
-	containerStartFn   func(ctx context.Context, containerID string, options container.StartOptions) error
-	containerRenameFn  func(ctx context.Context, containerID string, newContainerName string) error
-	networkConnectFn   func(ctx context.Context, networkID string, containerID string, config *network.EndpointSettings) error
-	imagePullFn        func(ctx context.Context, ref string, options image.PullOptions) (io.ReadCloser, error)
-	imageListFn        func(ctx context.Context, options image.ListOptions) ([]image.Summary, error)
+	containerListFn       func(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
+	containerInspectFn    func(ctx context.Context, containerID string) (container.InspectResponse, error)
+	containerStopFn       func(ctx context.Context, containerID string, options container.StopOptions) error
+	containerRemoveFn     func(ctx context.Context, containerID string, options container.RemoveOptions) error
+	containerCreateFn     func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error)
+	containerStartFn      func(ctx context.Context, containerID string, options container.StartOptions) error
+	containerRenameFn     func(ctx context.Context, containerID string, newContainerName string) error
+	networkConnectFn      func(ctx context.Context, networkID string, containerID string, config *network.EndpointSettings) error
+	imagePullFn           func(ctx context.Context, ref string, options image.PullOptions) (io.ReadCloser, error)
+	imageListFn           func(ctx context.Context, options image.ListOptions) ([]image.Summary, error)
+	imageInspectWithRawFn func(ctx context.Context, imageRef string) (image.InspectResponse, []byte, error)
 }
 
 func (m *mockClient) ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error) {
@@ -95,6 +96,13 @@ func (m *mockClient) ImageList(ctx context.Context, options image.ListOptions) (
 		panic("mockClient.ImageList called but not configured")
 	}
 	return m.imageListFn(ctx, options)
+}
+
+func (m *mockClient) ImageInspectWithRaw(ctx context.Context, imageRef string) (image.InspectResponse, []byte, error) {
+	if m.imageInspectWithRawFn == nil {
+		panic("mockClient.ImageInspectWithRaw called but not configured")
+	}
+	return m.imageInspectWithRawFn(ctx, imageRef)
 }
 
 // Compile-time check that mockClient implements DockerClient.

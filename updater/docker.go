@@ -24,4 +24,5 @@ type DockerClient interface {
 	NetworkConnect(ctx context.Context, networkID string, containerID string, config *network.EndpointSettings) error
 	ImagePull(ctx context.Context, ref string, options image.PullOptions) (io.ReadCloser, error)
 	ImageList(ctx context.Context, options image.ListOptions) ([]image.Summary, error)
+	ImageInspectWithRaw(ctx context.Context, image string) (image.InspectResponse, []byte, error)
 }

@@ -26,10 +26,8 @@ func fullMockForUpdate(oldImageID, newImageID string) *mockClient {
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
-		imageListFn: func(_ context.Context, _ image.ListOptions) ([]image.Summary, error) {
-			return []image.Summary{
-				{ID: newImageID},
-			}, nil
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
+			return image.InspectResponse{ID: newImageID}, nil, nil
 		},
 		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
 			return container.InspectResponse{
@@ -61,8 +59,127 @@ func fullMockForUpdate(oldImageID, newImageID string) *mockClient {
 }
 
 // ---------------------------------------------------------------------------
+// resolveImageRef
+// ---------------------------------------------------------------------------
+
+func TestResolveImageRef_NameTag(t *testing.T) {
+	// When ct.Image is a name:tag, it should be returned as-is without
+	// calling ContainerInspect.
+	m := &mockClient{}
+	u := New(m, &Config{NameGlobs: []string{"*"}}, time.Hour, 30, "", discardLogger())
+
+	ct := container.Summary{
+		ID:    "abcdef1234567890",
+		Names: []string{"/test"},
+		Image: "python:latest",
+	}
+
+	ref, err := u.resolveImageRef(context.Background(), ct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ref != "python:latest" {
+		t.Errorf("expected %q, got %q", "python:latest", ref)
+	}
+}
+
+func TestResolveImageRef_SHA256FallsBackToInspect(t *testing.T) {
+	// When ct.Image is a sha256 digest, resolveImageRef should call
+	// ContainerInspect and return Config.Image.
+	m := &mockClient{
+		containerInspectFn: func(_ context.Context, cid string) (container.InspectResponse, error) {
+			if cid != "abcdef1234567890" {
+				t.Errorf("unexpected container ID %q", cid)
+			}
+			return container.InspectResponse{
+				ContainerJSONBase: &container.ContainerJSONBase{
+					Name:       "/test",
+					HostConfig: &container.HostConfig{},
+				},
+				Config: &container.Config{Image: "python:latest"},
+			}, nil
+		},
+	}
+
+	u := New(m, &Config{NameGlobs: []string{"*"}}, time.Hour, 30, "", discardLogger())
+	ct := container.Summary{
+		ID:      "abcdef1234567890",
+		Names:   []string{"/test"},
+		Image:   "sha256:70a693a5ab49ada7d4d5d974678288262bfeccadf06b8362c90ec9cd1a9b7c97",
+		ImageID: "sha256:70a693a5ab49ada7d4d5d974678288262bfeccadf06b8362c90ec9cd1a9b7c97",
+	}
+
+	ref, err := u.resolveImageRef(context.Background(), ct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ref != "python:latest" {
+		t.Errorf("expected %q, got %q", "python:latest", ref)
+	}
+}
+
+func TestResolveImageRef_InspectError(t *testing.T) {
+	m := &mockClient{
+		containerInspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{}, errors.New("inspect failed")
+		},
+	}
+
+	u := New(m, &Config{NameGlobs: []string{"*"}}, time.Hour, 30, "", discardLogger())
+	ct := container.Summary{
+		ID:    "abcdef1234567890",
+		Names: []string{"/test"},
+		Image: "sha256:70a693a5ab49",
+	}
+
+	_, err := u.resolveImageRef(context.Background(), ct)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "inspect") {
+		t.Errorf("error should mention inspect, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // updateContainer
 // ---------------------------------------------------------------------------
+
+func TestUpdateContainer_SHA256ImageRef(t *testing.T) {
+	// Simulates the scenario where ct.Image is a sha256 digest because the
+	// tag moved to a newer image. The updater should inspect the container
+	// to get the original name, then pull by name.
+	oldID := "sha256:70a693a5ab49ada7d4d5d974678288262bfeccadf06b8362c90ec9cd1a9b7c97"
+	newID := "sha256:newnewnewnew"
+
+	var pulledRef string
+
+	m := fullMockForUpdate(oldID, newID)
+	m.imagePullFn = func(_ context.Context, ref string, _ image.PullOptions) (io.ReadCloser, error) {
+		pulledRef = ref
+		return io.NopCloser(strings.NewReader(`{}`)), nil
+	}
+
+	u := New(m, &Config{NameGlobs: []string{"*"}}, time.Hour, 30, "", discardLogger())
+	ct := container.Summary{
+		ID:      "abcdef1234567890",
+		Names:   []string{"/fff"},
+		Image:   oldID, // Docker returned sha256 because tag moved
+		ImageID: oldID,
+	}
+
+	updated, err := u.updateContainer(context.Background(), ct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !updated {
+		t.Error("expected update when image ID changed")
+	}
+	// The pull should have used the name from ContainerInspect, not the sha256.
+	if pulledRef != "nginx:latest" {
+		t.Errorf("expected pull ref %q, got %q", "nginx:latest", pulledRef)
+	}
+}
 
 func TestUpdateContainer_DigestUnchanged(t *testing.T) {
 	sameID := "sha256:aabbccdd"
@@ -71,10 +188,8 @@ func TestUpdateContainer_DigestUnchanged(t *testing.T) {
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
-		imageListFn: func(_ context.Context, _ image.ListOptions) ([]image.Summary, error) {
-			return []image.Summary{
-				{ID: sameID},
-			}, nil
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
+			return image.InspectResponse{ID: sameID}, nil, nil
 		},
 	}
 
@@ -215,11 +330,9 @@ func TestRunOnce_FiltersAndCounts(t *testing.T) {
 		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(`{}`)), nil
 		},
-		imageListFn: func(_ context.Context, _ image.ListOptions) ([]image.Summary, error) {
+		imageInspectWithRawFn: func(_ context.Context, _ string) (image.InspectResponse, []byte, error) {
 			// Same image ID — no update needed
-			return []image.Summary{
-				{ID: "sha256:same"},
-			}, nil
+			return image.InspectResponse{ID: "sha256:same"}, nil, nil
 		},
 	}
 
