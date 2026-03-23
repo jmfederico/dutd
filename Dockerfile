@@ -1,13 +1,9 @@
 # syntax=docker/dockerfile:1
 
 # ── Stage 1: build ──────────────────────────────────────────────────────────
-# BuildKit sets TARGETPLATFORM / TARGETARCH automatically when building
-# multi-platform images with --platform, so no manual GOARCH wiring is needed.
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
-
-# Build arguments injected by BuildKit for cross-compilation.
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+# Each target platform builds natively (under QEMU on CI) so the Go toolchain
+# produces a binary matching the running architecture without cross-compilation.
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /src
 
@@ -17,7 +13,7 @@ RUN go mod download
 
 # Copy source and build a fully static binary.
 COPY . .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+RUN CGO_ENABLED=0 \
     go build \
       -ldflags="-s -w" \
       -trimpath \
