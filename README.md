@@ -6,7 +6,8 @@ dutd periodically checks running containers, pulls the latest version of their i
 
 ## Features
 
-- Single static binary, no runtime dependencies
+- Single static binary (~6 MB), tiny Docker image (~4 MB compressed, ~16 MB on disk), no runtime dependencies
+- Keeps itself up to date automatically when running as a container
 - Connects to Docker via Unix socket only (no TCP/TLS)
 - Configurable check interval
 - Filter containers by name (glob patterns), image tag (exact match), or label, or any combination
