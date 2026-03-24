@@ -61,7 +61,13 @@ docker compose up -d
 
 ### SELinux
 
-On systems with SELinux enforcing (e.g. Fedora, RHEL, CentOS), the container may be denied access to the Docker socket even with the correct user and group. Add `--security-opt label=disable` to allow it:
+On systems with SELinux enforcing (e.g. Fedora, RHEL, CentOS), the container may be denied access to the Docker socket even with the correct user and group. The typical symptom is a log entry like:
+
+```
+docker socket not reachable  socket=/var/run/docker.sock  err="permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock"
+```
+
+Add `--security-opt label=disable` to allow it:
 
 ```bash
 docker run -d \
